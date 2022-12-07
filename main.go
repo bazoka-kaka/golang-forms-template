@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"text/template"
 )
 
@@ -12,6 +15,7 @@ func main() {
 	http.HandleFunc("/", handleForm)
 	http.HandleFunc("/process", handleSubmit)
 	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/upload-alias", handleUploadAlias)
 
 	fmt.Println("server running on port 3000")
 	http.ListenAndServe(":3000", nil)
@@ -101,4 +105,50 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "", http.StatusBadRequest)
+}
+
+func handleUploadAlias(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseMultipartForm(1024); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	alias := r.FormValue("alias")
+	uploadedFile, handler, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer uploadedFile.Close()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	filename := handler.Filename
+	if alias != "" {
+		filename = fmt.Sprintf("%s%s", alias, filepath.Ext(handler.Filename))
+	}
+
+	targetLocation := filepath.Join(dir, "images", filename)
+
+	targetFile, err := os.OpenFile(targetLocation, os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer targetFile.Close()
+
+	if _, err := io.Copy(targetFile, uploadedFile); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("success!"))
 }
